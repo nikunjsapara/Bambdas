@@ -1,0 +1,228 @@
+// HTTP Method Fuzzer Bambda Custom Action - Single Tab Version
+// This Bambda tests various HTTP methods against the same endpoint
+// All requests are sent directly without creating new tabs, with detailed logging
+
+// Global delay between requests (in milliseconds)
+int GLOBAL_DELAY_MS = 1000; // 1 second delay between requests
+
+// HTTP Methods to test
+String[] HTTP_METHODS = {
+    "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", 
+    "TRACE", "CONNECT", "PROPFIND", "PROPPATCH", "MKCOL", "COPY", 
+    "MOVE", "LOCK", "UNLOCK", "VERSION-CONTROL", "REPORT", "CHECKOUT", 
+    "CHECKIN", "UNCHECKOUT", "MKWORKSPACE", "UPDATE", "LABEL", "MERGE", 
+    "BASELINE-CONTROL", "MKACTIVITY", "ORDERPATCH", "ACL", "SEARCH",
+    "ARBITRARY", "DEBUG", "TRACK", "TEST", "INVALID"
+};
+
+// Get original request
+var originalRequest = requestResponse.request();
+var httpService = requestResponse.httpService();
+
+// Get original method for comparison
+String originalMethod = originalRequest.method();
+String originalUrl = originalRequest.url();
+
+logging.logToOutput("========================================");
+logging.logToOutput("HTTP METHOD FUZZING STARTED");
+logging.logToOutput("Target: " + httpService.host() + ":" + httpService.port());
+logging.logToOutput("Original Method: " + originalMethod);
+logging.logToOutput("Original URL: " + originalUrl);
+logging.logToOutput("Testing " + HTTP_METHODS.length + " different HTTP methods");
+logging.logToOutput("========================================");
+
+// Counter for tracking requests
+int totalRequests = 0;
+int anomalousResponses = 0;
+StringBuilder results = new StringBuilder();
+results.append("HTTP METHOD FUZZING RESULTS:\n\n");
+results.append("Target: " + originalUrl + "\n");
+results.append("Original Method: " + originalMethod + "\n");
+results.append("----------------------------------------\n");
+
+// Get baseline response for comparison (using original method)
+logging.logToOutput("Getting baseline response with " + originalMethod + " method...");
+var baselineResponse = api.http().sendRequest(originalRequest);
+int baselineStatus = baselineResponse.response().statusCode();
+int baselineLength = baselineResponse.response().body().length();
+String baselineHeaders = baselineResponse.response().headers().toString();
+
+logging.logToOutput("Baseline: Status " + baselineStatus + ", Length " + baselineLength);
+
+// Test each HTTP method
+for (String method : HTTP_METHODS) {
+    logging.logToOutput("\n=== Testing HTTP Method: " + method + " ===");
+    
+    try {
+        // Create new request with modified method
+        var modifiedRequest = originalRequest.withMethod(method);
+        
+        // Send request
+        var response = api.http().sendRequest(modifiedRequest);
+        
+        // Add delay between requests
+        Thread.sleep(GLOBAL_DELAY_MS);
+        
+        int status = response.response().statusCode();
+        int responseLength = response.response().body().length();
+        String responseHeaders = response.response().headers().toString();
+        String responseBody = response.response().bodyToString();
+        
+        String result = method + " -> Status: " + status + " (Length: " + responseLength + ")";
+        
+        // Check for anomalies and interesting responses
+        boolean isAnomalous = false;
+        StringBuilder anomalyDetails = new StringBuilder();
+        
+        // Status code analysis
+        if (status != baselineStatus) {
+            isAnomalous = true;
+            anomalyDetails.append(" [STATUS CHANGE: " + baselineStatus + " -> " + status + "]");
+        }
+        
+        // Response length analysis
+        if (Math.abs(responseLength - baselineLength) > 100) {
+            isAnomalous = true;
+            anomalyDetails.append(" [LENGTH CHANGE: " + baselineLength + " -> " + responseLength + "]");
+        }
+        
+        // Check for method disclosure in response
+        if (responseBody.toLowerCase().contains(method.toLowerCase()) && 
+            !responseBody.toLowerCase().contains(originalMethod.toLowerCase())) {
+            isAnomalous = true;
+            anomalyDetails.append(" [METHOD IN RESPONSE]");
+        }
+        
+        // Check for specific interesting status codes
+        if (status == 200 && !originalMethod.equals(method)) {
+            isAnomalous = true;
+            anomalyDetails.append(" [SUCCESSFUL " + method + "]");
+        } else if (status == 405) {
+            anomalyDetails.append(" [METHOD NOT ALLOWED]");
+        } else if (status == 501) {
+            anomalyDetails.append(" [NOT IMPLEMENTED]");
+        } else if (status == 400) {
+            anomalyDetails.append(" [BAD REQUEST]");
+        } else if (status == 403) {
+            anomalyDetails.append(" [FORBIDDEN]");
+        } else if (status == 404) {
+            anomalyDetails.append(" [NOT FOUND]");
+        } else if (status == 500) {
+            isAnomalous = true;
+            anomalyDetails.append(" [SERVER ERROR]");
+        }
+        
+        // Check for OPTIONS method revealing allowed methods
+        if (method.equals("OPTIONS") && status == 200) {
+            String allowHeader = "";
+            for (var header : response.response().headers()) {
+                if (header.name().equalsIgnoreCase("Allow")) {
+                    allowHeader = header.value();
+                    break;
+                }
+            }
+            if (!allowHeader.isEmpty()) {
+                isAnomalous = true;
+                anomalyDetails.append(" [ALLOW HEADER: " + allowHeader + "]");
+            }
+        }
+        
+        // Check for TRACE method (potential XST vulnerability)
+        if (method.equals("TRACE") && status == 200) {
+            if (responseBody.contains("TRACE")) {
+                isAnomalous = true;
+                anomalyDetails.append(" [TRACE ENABLED - XST RISK]");
+            }
+        }
+        
+        // Check for WebDAV methods
+        if ((method.equals("PROPFIND") || method.equals("PROPPATCH") || 
+             method.equals("MKCOL") || method.equals("COPY") || method.equals("MOVE")) 
+            && (status == 200 || status == 207 || status == 401)) {
+            isAnomalous = true;
+            anomalyDetails.append(" [WEBDAV ENABLED]");
+        }
+        
+        // Check for debug/test methods
+        if ((method.equals("DEBUG") || method.equals("TRACK") || method.equals("TEST")) 
+            && status != 405 && status != 501) {
+            isAnomalous = true;
+            anomalyDetails.append(" [DEBUG METHOD ACTIVE]");
+        }
+        
+        result += anomalyDetails.toString();
+        
+        if (isAnomalous) {
+            anomalousResponses++;
+            logging.logToOutput("    *** " + result + " ***");
+        } else {
+            logging.logToOutput("    " + result);
+        }
+        
+        // Create HttpRequestResponse object for organizer
+        var requestResponseForOrganizer = burp.api.montoya.http.message.HttpRequestResponse.httpRequestResponse(
+            modifiedRequest, response.response()
+        );
+        
+        // Set annotations
+        String notes = "HTTP Method: " + method + " | " + result;
+        if (isAnomalous) {
+            notes = "[ANOMALY] " + notes;
+        }
+        requestResponseForOrganizer.annotations().setNotes(notes);
+        
+        // Color code based on result
+        if (isAnomalous) {
+            if (status == 200 && !originalMethod.equals(method)) {
+                requestResponseForOrganizer.annotations().setHighlightColor(burp.api.montoya.core.HighlightColor.RED);
+            } else if (method.equals("TRACE") && status == 200) {
+                requestResponseForOrganizer.annotations().setHighlightColor(burp.api.montoya.core.HighlightColor.ORANGE);
+            } else {
+                requestResponseForOrganizer.annotations().setHighlightColor(burp.api.montoya.core.HighlightColor.YELLOW);
+            }
+        }
+        
+        // Send to organizer
+        api.organizer().sendToOrganizer(requestResponseForOrganizer);
+        
+        results.append(result + "\n");
+        totalRequests++;
+        
+    } catch (Exception e) {
+        String errorResult = method + " -> ERROR: " + e.getMessage();
+        logging.logToError("    " + errorResult);
+        results.append(errorResult + "\n");
+    }
+}
+
+// Generate summary
+logging.logToOutput("\n========================================");
+logging.logToOutput("HTTP METHOD FUZZING COMPLETED");
+logging.logToOutput("========================================");
+
+String summary = String.format(
+    "FUZZING SUMMARY:\n" +
+    "Target: %s\n" +
+    "Methods tested: %d\n" +
+    "Total requests: %d\n" +
+    "Anomalous responses: %d\n\n" +
+    "KEY FINDINGS:\n" +
+    "- Check requests marked with *** for potential issues\n" +
+    "- RED highlights: Successful responses with non-standard methods\n" +
+    "- ORANGE highlights: TRACE method enabled (XST risk)\n" +
+    "- YELLOW highlights: Other anomalies detected\n\n" +
+    "SECURITY CONSIDERATIONS:\n" +
+    "- Unexpected 200 responses may indicate method override vulnerabilities\n" +
+    "- TRACE enabled can lead to Cross-Site Tracing (XST) attacks\n" +
+    "- WebDAV methods may expose file system operations\n" +
+    "- Debug methods should not be available in production\n" +
+    "- OPTIONS responses reveal supported methods to attackers\n\n" +
+    "All requests have been sent to the Organizer for detailed analysis.",
+    originalUrl, HTTP_METHODS.length, totalRequests, anomalousResponses
+);
+
+logging.logToOutput(summary);
+results.append("\n" + summary);
+
+// Output final results summary
+logging.logToOutput("\n" + results.toString());
