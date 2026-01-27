@@ -19,3 +19,22 @@ Bambdas are lightweight, reusable Java-based scripts that run directly from Burp
 - Request Attacker
 - HTTP Method Fuzzer
 
+## ⭐ Contributors
+
+Thanks to these wonderful people for their contributions ⭐
+<table>
+  <tr align="center">
+  <td>
+      <a href="https://github.com/zinja-coder">
+        <img src="https://avatars.githubusercontent.com/u/65374935?v=4" width="30px;" alt=""/>
+        <br /><sub><b>zinja-coder</b></sub>
+      </a>
+    </td>
+  <td>
+      <a href="https://github.com/thouhithkhan">
+        <img src="https://avatars.githubusercontent.com/u/257078947?v=4" width="30px;" alt=""/>
+        <br /><sub><b>thouhithkhan</b></sub>
+      </a>
+    </td>
+  </tr>
+    
