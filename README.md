@@ -40,7 +40,7 @@ Thanks to these wonderful people for their contributions ⭐
     </td>
       <td>
       <a href="https://github.com/nikunjsapara">
-        <img src="https://avatars.githubusercontent.com/u/65374935?v=4" width="30px;" alt=""/>
+        <img src="https://avatars.githubusercontent.com/u/61574249?v=4" width="30px;" alt=""/>
         <br /><sub><b>Nikunj Sapara</b></sub>
       </a>
     </td>
